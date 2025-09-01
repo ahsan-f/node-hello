@@ -19,16 +19,39 @@ jobs:
         node-version: [18.x, 20.x, 22.x]
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
 
-    steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-    - run: npm ci
-    - run: npm run build --if-present
-    - run: npm test
-    -   name: Start index.js 
-    -   run:  node index.js &
+        steps:
+      - uses: actions/checkout@v4
 
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build --if-present
+
+      # Start your server in the background
+      - name: Start app
+        run: |
+          node index.js &
+          echo $! > app.pid
+          # wait for port 3000 (adjust to your port)
+          for i in {1..20}; do
+            if nc -z localhost 3000; then echo "App is up"; break; fi
+            sleep 1
+          done
+
+      # Probe the endpoint
+      - name: Smoke test
+        run: |
+          curl -sSf http://localhost:3000 | tee /tmp/resp.txt
+          grep -q "Hello World" /tmp/resp.txt
+
+      - run: npm test
+
+      # Always stop the background process
+      - name: Stop app
+        if: always()
+        run: |
+          if [ -f app.pid ]; then kill "$(cat app.pid)" || true; fi
